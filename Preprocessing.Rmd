@@ -1,0 +1,533 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+#Coming from -> ExtractFieldsMagdaFodler.Rmd
+#setwd(/rds/projects/g/gkoutosg-variant-prediction/Laura/Magda)
+
+#Check thiis out: https://www.nature.com/articles/s41467-020-18201-5
+#https://www.nature.com/articles/nn.4393
+#https://www.biorxiv.org/content/10.1101/749077v1.full.pdf
+#https://www.sciencedirect.com/science/article/pii/S2451902218301587?via%3Dihub#bib11
+
+```
+
+
+```{r}
+library(data.table)
+library(tidyr)
+library(ggplot2)
+library(factoextra)
+library(FactoMineR)
+library(corrplot)
+library(tidymodels)
+library(dplyr)
+library(janitor)
+library(stringr)
+library(tidylog)
+
+library(tibble)
+library(forcats)
+
+
+library(lubridate)
+
+library(finalfit)
+library(dplyr)
+library(mice)
+library(tidylog)
+
+```
+
+#Fields
+
+```{r}
+
+
+
+#Could have gotten any reading in networks/cognitions - for sure better than random imputation although 5 year before
+
+
+#Extracted from JustModeling2.Rmd
+Fields <- fread("/castles/nr/projects/c/chechlmy-brain-ageing-ukbiobank/new_dat/ukb41202.tab") #changed 
+#502505   7208
+
+#Fields2 <- fread("/castles/nr/projects/c/chechlmy-brain-ageing-ukbiobank/data_refresh_20210329/ukb46200.tab")
+#502485   7499
+
+#Diag <- fread("/castles/nr/projects/c/chechlmy-brain-ageing-ukbiobank/data_refresh_20210329/diag_fields.tsv") - select patients with dementia ukbiobank diagnosis
+
+
+Selected <- Fields %>%
+  dplyr::select(f.eid, 
+         "f.34.0.0",  #age year
+         "f.52.0.0",  #age month
+         "f.53.2.0",  #date assessment centre
+        # "f.22001.0.0", # genetic sex ---------- has missing values
+         "f.31.0.0", #sex
+         starts_with("f.845"), #education
+         "f.20023.2.0", #cogFun
+         "f.4282.2.0",
+         "f.20016.2.0",
+         "f.6348.2.0",
+         "f.6350.2.0",
+         "f.6373.2.0",
+         "f.21004.2.0",
+         "f.23324.2.0",
+         "f.20197.2.0",
+         "f.399.2.2",    #cogFun
+         "f.25661.2.0",  #FrontoParietal Nets
+         "f.25662.2.0",
+         "f.25663.2.0",
+         "f.25671.2.0",
+         "f.25672.2.0",
+         "f.25688.2.0",
+         "f.25689.2.0",
+         "f.25690.2.0",
+         "f.25698.2.0",
+         "f.25699.2.0") #FrontoParietal Nets
+         #"f.25752.2.0") #FrontoParietal Connectivity data_pc25 - more preproc here
+
+write.table(data.frame(Names = names(Selected), True = c("eid",
+                     "Clinical_Birth_Year", "Clinical_Birth_Month", "Clinical_Date_Assessment", "Clinical_Sex", "Education_0", "Education_1", "Education_2",
+                     "Cog_ReactionTime", "Cog_NumericMemory", "Cog_FluidIntelligence", "Cog_TrailA", "Cog_TrailB", "Cog_MatrixPatterns", "Cog_TowerRearr", "Cog_SymbolSubs", "Cog_PairedAssoc", "Cog_PairMatch",
+                     "WM_ICVF_ForcepsMinor","WM_ICVF_IFOF_Left", "WM_ICVF_IFOF_Right", "WM_ICVF_SLF_Left", 
+                     "WM_ICVF_SLF_Right", "WM_OD_ForcepsMinor", "WM_OD_IFOF_Left", "WM_OD_IFOF_Right", 
+                     "WM_OD_SLF_Left", "WM_OD_SLF_Right") ), "AppendixFields.txt", quote = FALSE, col.names = FALSE, row.names = FALSE, sep = ":")
+
+names(Selected) <- c("eid",
+                     "Clinical_Birth_Year", "Clinical_Birth_Month", "Clinical_Date_Assessment", "Clinical_Sex", "Education_0", "Education_1", "Education_2",
+                     "Cog_ReactionTime", "Cog_NumericMemory", "Cog_FluidIntelligence", "Cog_TrailA", "Cog_TrailB", "Cog_MatrixPatterns", "Cog_TowerRearr", "Cog_SymbolSubs", "Cog_PairedAssoc", "Cog_PairMatch",
+                     "WM_ICVF_ForcepsMinor","WM_ICVF_IFOF_Left", "WM_ICVF_IFOF_Right", "WM_ICVF_SLF_Left", 
+                     "WM_ICVF_SLF_Right", "WM_OD_ForcepsMinor", "WM_OD_IFOF_Left", "WM_OD_IFOF_Right", 
+                     "WM_OD_SLF_Left", "WM_OD_SLF_Right")
+                    # "FunctionalConnectivity")
+
+SelectedParticipants <- Selected %>%
+  drop_na(Clinical_Date_Assessment)
+```
+
+#Preproc
+
+```{r}
+
+#Merge education into just one value
+
+SelectedParticipants2 <- SelectedParticipants %>%
+  mutate(Clinical_EducationMeasurement = coalesce(Education_2,Education_0,Education_1)) %>%
+  dplyr::select(-starts_with("Education_"))
+
+Pc25 <-  read.table("/rds/projects/c/chechlmy-brain-ageing-ukbiobank/Laura/data_pc25.txt", header = TRUE, sep = "", dec = ".")
+
+names(Pc25)[1] <- c("eid")
+
+SelectedParticipants3 <- left_join(SelectedParticipants2, Pc25) 
+
+```
+
+Age 
+
+```{r}
+
+SelectedParticipants3 <- SelectedParticipants3 %>%
+  mutate(ClinicalDateBirth = make_date(Clinical_Birth_Year, Clinical_Birth_Month, 1), 
+         ClinicalAge = time_length(ymd(Clinical_Date_Assessment) - ymd(ClinicalDateBirth), unit = "years")) %>%
+  dplyr::select(-c(Clinical_Birth_Year,Clinical_Birth_Month ))
+
+```
+
+Preprocessing - Education 
+
+```{r}
+
+#2760 items have value -3 (Prefer not to answer)
+#440 items have value -2 (Never went to school) # changed to 0 
+#3454 items have value -1 (Do not know)
+  
+  SelectedParticipants3$Clinical_EducationMeasurement<- SelectedParticipants3$Clinical_EducationMeasurement %>%
+    str_replace_all(., "-2","0")
+  
+  '%ni%' <- Negate('%in%') #check good - 4 patients out 
+  
+  SelectedParticipants3 <- SelectedParticipants3 %>%
+    filter(Clinical_EducationMeasurement %ni% c("-3","-1")) #take out
+
+   SelectedParticipants3$Cog_NumericMemory <- SelectedParticipants3$Cog_NumericMemory %>%
+    str_replace_all(., "-1","0") %>%
+     as.numeric()
+ 
+
+```
+
+Missing value analysis 1
+
+
+```{r}
+
+library(visdat)
+library(UpSetR)
+
+#vis_miss(SelectedParticipants3, warn_large_data = FALSE)
+
+
+
+```
+
+```{r}
+save(SelectedParticipants3,file = "SelectedParticipants3.RData")
+```
+
+```{r}
+library(finalfit)
+
+#all cognitive tests treated as continous in UKBiobank
+
+SelectedParticipants3$Clinical_Sex <- as.factor(SelectedParticipants3$Clinical_Sex)
+
+Missing <- SelectedParticipants3 %>%
+  mutate(EducationMissing = as.factor(ifelse(is.na(Clinical_EducationMeasurement), "Yes", "No")))
+
+
+explanatory <- setdiff(names(SelectedParticipants3), c("ClinicalDateBirth", "Clinical_Date_Assessment","Clinical_EducationMeasurement", "eid"))
+dependent <- "EducationMissing"
+
+
+Table1 <- Missing %>% 
+  summary_factorlist(dependent, explanatory, total_col = TRUE, orderbytotal = TRUE,
+  na_include=TRUE, p=TRUE, na_to_p = TRUE, add_col_totals = TRUE, add_row_totals = TRUE)
+
+write.csv(Table1,"TableLifestyleFactorsNew.csv")
+
+#0 Female
+#1 Male
+```
+
+
+
+```{r}
+
+ ll <- data.frame(is.na(SelectedParticipants3)) # %>%
+  cols <- sapply(ll, is.logical)
+  ll[, cols] <- lapply(ll[, cols], as.numeric)
+  
+  Miss1 <- UpSetR::upset(ll,
+    nsets = 40, number.angles = 20, point.size = 3.5, line.size = 2,
+    mainbar.y.label = "Missing Values", sets.x.label = "Total Number Missing Values",
+    text.scale = c(2.3, 2.3, 2, 2, 2, 1.75), order.by = "freq", sets.bar.color = "red3"
+  )
+
+  pdf("SFig1_MissingVal1.pdf", 25, 30)
+  print(Miss1)
+  dev.off()
+
+```
+
+
+
+```{r}
+
+
+# KEY!! By features
+explanatory = names(SelectedParticipants3) %>% 
+  setdiff(c("eid","Clinical_EducationMeasurement"))
+
+ dependent = "Clinical_EducationMeasurement"
+ SelectedParticipants3 %>% 
+  ff_glimpse(dependent, explanatory) %>%
+   write.csv(., "Missing.csv")
+ 
+# explanatory = names(SelectedParticipants3) %>% #setdiff(c("eid","Clinical_EducationMeasurement","Clinical_Date_Assessment","ClinicalDateBirth"))
+#SelectedParticipants3 %>% 
+#  missing_compare(dependent, explanatory)
+ 
+# Missing data inspection
+pdf("MissingPlot.pdf")
+print(SelectedParticipants3 %>%
+  missing_plot(explanatory = names(SelectedParticipants3)))
+dev.off()
+
+pdf("MissingPlotPatterns.pdf",25,25)
+# Missing data patterns
+SelectedParticipants3 %>% 
+  missing_pattern(rotate.names = TRUE,)
+dev.off()
+ 
+AllInfo <- SelectedParticipants3 %>% 
+  missing_pattern(rotate.names = TRUE,)
+
+#explanatory = names(Data) %>% setdiff(c("eid","Clinical_EducationMeasurement"))
+# dependent = "Clinical_EducationMeasurement"
+# 
+# SelectedParticipants3 %>% 
+#  ff_glimpse(dependent, explanatory) %>%
+#   write.csv(., "MissingEducationOut.csv")
+
+```
+
+
+Missing value analysis 2
+
+```{r}
+Data <- SelectedParticipants3 %>%
+  drop_na(Clinical_EducationMeasurement) %>%
+  select(-c("Clinical_Date_Assessment", "ClinicalDateBirth"))
+
+
+#Not done for this analysis - can probably change lots of preprocessing steps
+
+#Rows <- data.frame(rowSums(is.na(Data))) %>%
+#  dplyr::add_rownames() %>%
+#  rename(Missing = 'rowSums.is.na.Data..')
+#
+#DataRemove <- Data[-as.numeric(filter(Rows, Missing > 20)$rowname), ] #remove samples with more than 50% missing columns
+  
+
+ll <- data.frame(is.na(Data)) # %>%
+  cols <- sapply(ll, is.logical)
+  ll[, cols] <- lapply(ll[, cols], as.numeric)
+  
+  Miss1 <- UpSetR::upset(ll,
+    nsets = 40, number.angles = 20, point.size = 3.5, line.size = 2,
+    mainbar.y.label = "Missing Values", sets.x.label = "Total Number Missing Values",
+    text.scale = c(2.3, 2.3, 2, 2, 2, 1.75), order.by = "freq", sets.bar.color = "red3"
+  )
+
+  pdf("SFig2_MissingVal.pdf", 34, 23)
+  print(Miss1)
+  dev.off()
+  
+  
+library(naniar)
+
+pdf("Missing2.pdf", 20, 10)
+print(vis_miss(Data, warn_large_data = FALSE) + theme(axis.text.x =  element_text(angle = 90)))
+dev.off()
+
+```
+ 
+ KNN imputation
+
+```{r}
+rec <- recipe(Clinical_EducationMeasurement ~ .,
+              data = Data)
+ 
+ DataImputed <-  rec %>%
+  step_impute_knn(all_predictors(), neighbors = 3)
+ 
+ratio_recipe2 <- prep(DataImputed, training = Data)
+```
+
+
+```{r}
+#saveRDS(ratio_recipe2,"recepieImputed.RDS")
+imputed <- bake(ratio_recipe2, Data)
+saveRDS(imputed,"imputedData.RDS")
+
+imputed <- readRDS("imputedData.RDS")
+
+```
+
+
+```{r}
+
+#https://aedin.github.io/PCAworkshop/articles/b_PCA.html
+
+set.seed(132)
+
+GeneralCog <- imputed %>%
+  dplyr::select(starts_with("Cog"))
+
+GeneralCog$Cog_NumericMemory <- as.numeric(GeneralCog$Cog_NumericMemory)
+
+library("factoextra")
+
+res.pca <- prcomp(GeneralCog, scale = TRUE)
+
+Facto <- PCA(GeneralCog, scale.unit = TRUE, ncp = 3, graph = FALSE)
+
+
+A1 <- fviz_eig(Facto, choice = "eigenvalue", ylim = c(0, 5),
+               addlabels=TRUE, geom="line")
+
+A2 <- fviz_eig(Facto, addlabels = TRUE, ylim = c(0, 50), geom="line")
+
+
+library(patchwork)
+
+pdf("ScreePlot.pdf")
+A1/A2
+dev.off()
+
+
+head(s$coord)
+
+fviz_pca_var(Facto, col.var = "contrib", #cos2
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+             repel = TRUE # Avoid text overlapping
+             )
+
+fviz_contrib(Facto, choice = "var", axes = 1, top = 10)
+
+score <- as_tibble(factoextra::get_pca_ind(Facto)$coord)$Dim.1 #extract individual scores
+
+s <- get_pca_var(Facto)
+Table <- s$coord %>% 
+  as.data.frame() %>%
+  mutate_if(is.numeric, round, 3)
+Table2 <- res.pca$rotation
+
+write.csv(Table, "Coord.csv")
+
+#http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/118-principal-component-analysis-in-r-prcomp-vs-princomp/
+
+```
+
+New dataset
+```{r}
+
+
+WithCog <- data.frame( imputed, GeneralCog = score) 
+
+ saveRDS(WithCog, "imputedWithCog.RDS")
+
+WithCog <- WithCog %>%
+  dplyr::select(-starts_with("Cog")) 
+
+#https://biobank.ctsu.ox.ac.uk/crystal/crystal/docs/brain_mri.pdf
+#https://www.nature.com/articles/nn.4393#Fig6
+
+
+```
+
+Build files for John (GWAS) - in ExtractFields (confounder file)
+
+
+Plots PCA cog
+
+```{r}
+
+FinalDataChar <- WithCog %>%
+  mutate_if(is.integer, as.character) %>%
+    dplyr::select_if(~ !is.numeric(.)) %>%
+    mutate_if(~ !is.character(.), as.character) 
+
+  Model1aPivot <- FinalDataChar %>%
+    pivot_longer(-c(eid), names_to = "Features", values_to = "Value")
+
+  CharPlots <- Model1aPivot %>%
+    group_by(Features) %>%
+    dplyr::count(Value, sort = TRUE) %>%
+    ungroup() %>%
+    mutate(Value = fct_reorder(Value, n, sum)) %>%
+    ggplot(aes(n, Value)) +
+    geom_col() +
+    facet_wrap(~Features, scales = "free") +
+    labs(title = "Relationship of Variables and Outcome", x = "Number of Patients", y = "Levels of Feature") + theme_bw()
+  
+  
+  FinalDataNumeric <- WithCog %>%
+    dplyr::select(-c(names(FinalDataChar))) %>%
+    add_column(eid = WithCog$eid) %>% 
+    mutate_if(is.character, as.numeric) 
+  
+  Model2aPivot <- FinalDataNumeric %>%
+    pivot_longer(-c(eid), names_to = "Features", values_to = "Value")
+
+  NumPlots <- Model2aPivot %>%
+    dplyr::select(-eid) %>%
+    ggplot(aes(Value)) +
+    geom_density(alpha = .5) +
+    facet_wrap(~Features, scales = "free") +
+    labs(title = "Relationship of Variables and Outcome", x = "Density", y = "Value") + theme_bw()
+
+
+pdf("VarsPCA.pdf", 12, 15)
+print(NumPlots)
+print(CharPlots)
+dev.off()
+```
+
+
+# Genes - will have to repeat ( not just noradrenergiv/adrenergic genes : JustModeling2.Rmd) also APOE ganes in JustModeling2.Rmd (ADDD))
+
+```{r}
+#https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0236139
+
+SNPs <- fread("/rds/projects/c/chechlmy-brain-ageing-ukbiobank/Laura/extractsOld/recoded.raw") %>%
+  add_column(fread("/rds/projects/c/chechlmy-brain-ageing-ukbiobank/Laura/extracts/recoded.raw") %>% select(contains("rs"))) #APOE and selected genes
+
+SNPs2 <- SNPs %>%
+  dplyr::select("FID",starts_with("rs"))
+
+names(WithCog)[1] <- "FID"
+
+WithCog <- left_join(WithCog, SNPs2)
+
+WithCogAndSNPs <- WithCog %>%
+  mutate(e3e3 = ifelse((rs429358_C == 0 & rs7412_T == 0), 1,0 ), 
+         e3e4 = ifelse((rs429358_C == 1 & rs7412_T == 0), 1,0 ), 
+         #e2e3 = ifelse((rs429358_C == 0 & rs7412_T == 1), 1,0 ), #no link to cognitive decline
+         e4e4 = ifelse((rs429358_C == 2 & rs7412_T == 0), 1,0 )) %>% 
+  select(-c(rs429358_C,rs7412_T )) %>%
+  mutate_at(vars(matches("rs")), as.factor) %>%
+  mutate_at(vars(matches("e3")), as.factor) %>%
+  mutate_at(vars(matches("e4")), as.factor)
+
+explanatory <- names(WithCogAndSNPs) %>% setdiff(c("eid","Clinical_EducationMeasurement"))
+ dependent <- "Clinical_EducationMeasurement"
+
+ # WithCogAndSNPs %>% 
+ # ff_glimpse(dependent, explanatory) %>%
+ #  write.csv(., "MissingGenes.csv") #13% misisng genes 
+
+
+rec2 <- recipe(Clinical_EducationMeasurement ~ .,
+              data = WithCogAndSNPs)
+ 
+ DataImputed2 <-  rec2 %>%
+  step_impute_mode(all_nominal()) #knn taking a lot
+ 
+ImputedRecepie <- prep(DataImputed2, training = WithCogAndSNPs) 
+
+imputedSNPs <- bake(ImputedRecepie, WithCogAndSNPs)
+
+write.csv(imputedSNPs, file="/rds/projects/g/gkoutosg-variant-prediction/Laura/Magda/ImputedData.csv", quote = FALSE,  row.names = FALSE)
+
+
+```
+
+#Genes
+
+```{r}
+
+a <- data.table::fread("/rds/projects/g/gkoutosg-variant-prediction/Laura/Magda/JohnSNPs.txt")
+WithCogAndSNPs4ModeAPOE <- read.csv("/rds/projects/c/chechlmy-brain-ageing-ukbiobank/Laura/WithCogAndSNPs4ModeAPOE.csv") 
+
+Imaging <- WithCogAndSNPs4ModeAPOE %>% 
+  select(starts_with("WM"),starts_with("c") ) 
+
+
+Genes <- WithCogAndSNPs4ModeAPOE %>% 
+  select(starts_with("rs")) 
+
+GenesNanmes <- sapply(strsplit(names(Genes), "_"), `[`,1)
+
+
+SummaryStats <- a %>% 
+  mutate(Selected = ifelse(ID %in% GenesNanmes, "Yes", "No")) %>%
+  filter(LOG10P > 4.5)
+
+
+write.csv(SummaryStats, "SummaryStats.csv")
+
+setdiff( a$ID, GenesNanmes)
+
+```
+
